@@ -102,3 +102,20 @@ struct TerminalThemeTests {
         #expect(reloaded.resolvedType("") == .vt100)
     }
 }
+
+struct OpenSourceLicenseTests {
+    /// 앱 번들에 오픈소스 고지가 들어 있고 주요 항목이 빠지지 않았는지
+    @Test func bundledNoticesIncludeAllComponents() throws {
+        let entries = OpenSourceLicense.loadBundled()
+        let names = Set(entries.map(\.name))
+        for required in ["WithShell", "FreeRDP", "OpenSSL", "SwiftTerm", "Citadel", "swift-nio", "swift-nio-ssh",
+                         "swift-crypto", "BigInt", "Blowfish (OpenBSD)", "bcrypt_pbkdf (OpenBSD, via Citadel)"] {
+            #expect(names.contains(required), "\(required) 누락")
+        }
+        for entry in entries {
+            #expect(entry.text.count > 500, "\(entry.name) 라이선스 전문이 너무 짧음")
+        }
+        #expect(entries.first?.license == "MIT")
+        #expect(entries.first { $0.name == "Blowfish (OpenBSD)" }?.text.contains("Niels Provos") == true)
+    }
+}

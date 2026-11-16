@@ -39,6 +39,12 @@ struct WithShellApp: App {
         .defaultSize(width: 760, height: 520)
         .keyboardShortcut("k", modifiers: [.command, .shift])
 
+        Window("오픈소스 라이선스", id: OpenSourceLicensesView.windowID) {
+            OpenSourceLicensesView()
+        }
+        .defaultSize(width: 820, height: 600)
+        .commandsRemoved()
+
         Settings {
             SettingsView()
                 .environment(app)

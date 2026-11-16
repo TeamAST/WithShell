@@ -3,6 +3,7 @@ import SwiftUI
 
 struct WithShellCommands: Commands {
     let app: AppModel
+    @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
@@ -16,7 +17,12 @@ struct WithShellCommands: Commands {
                 .disabled(app.tabs.selectedTab == nil)
         }
 
+        CommandGroup(after: .appInfo) {
+            Button("오픈소스 라이선스") { openWindow(id: OpenSourceLicensesView.windowID) }
+        }
+
         CommandGroup(after: .help) {
+            Button("오픈소스 라이선스") { openWindow(id: OpenSourceLicensesView.windowID) }
             Button("RDP 진단 로그 보기") {
                 let url = RDPSession.logFileURL
                 if FileManager.default.fileExists(atPath: url.path) {

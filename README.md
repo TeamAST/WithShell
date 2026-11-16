@@ -40,6 +40,11 @@ Docker로 테스트 서버를 띄운 뒤 통합 테스트를 실행합니다.
 
 `WithShellTests/Fixtures`의 키는 테스트 전용입니다.
 
+## 라이선스
+
+WithShell은 [MIT 라이선스](LICENSE)로 배포됩니다. 앱에 포함된 오픈소스 목록과 라이선스 전문은 앱의 **도움말 → 오픈소스 라이선스**에서 볼 수 있습니다
+(`python3 scripts/collect-licenses.py`로 생성).
+
 ## 서드파티
 
 - [FreeRDP](https://github.com/FreeRDP/FreeRDP) (Apache 2.0), [OpenSSL](https://www.openssl.org) (Apache 2.0)
