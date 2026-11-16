@@ -20,6 +20,15 @@ xcodebuild -project WithShell.xcodeproj -scheme WithShell -configuration Release
 
 Xcode에서 처음 빌드할 때 SwiftTerm 빌드 플러그인의 "Trust & Enable"을 눌러야 합니다.
 
+### 배포 (Developer ID 서명 + 공증)
+
+```bash
+./scripts/release.sh            # → dist/WithShell-<버전>-arm64.zip
+```
+
+Release 구성은 팀 4Y6Z5689CK의 "Developer ID Application" 인증서로 서명하고,
+Xcode에 로그인된 계정으로 Apple 공증을 받은 뒤 스테이플합니다.
+
 ## 테스트
 
 Docker로 테스트 서버를 띄운 뒤 통합 테스트를 실행합니다.

@@ -87,6 +87,13 @@ targets:
           - -framework VideoToolbox
           - -framework CoreMedia
           - -framework CoreVideo
+      configs:
+        # 배포 빌드: 개인 개발자 프로그램 팀(4Y6Z5689CK)의 Developer ID 로 서명 — scripts/release.sh
+        Release:
+          DEVELOPMENT_TEAM: 4Y6Z5689CK
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: Developer ID Application
+          OTHER_CODE_SIGN_FLAGS: --timestamp
   WithShellTests:
     type: bundle.unit-test
     platform: macOS
