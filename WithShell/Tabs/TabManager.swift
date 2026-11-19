@@ -67,6 +67,7 @@ final class TabManager {
         tabs.first { $0.id == selectedTabID }
     }
 
+    /// 탭을 열고, 저장된 로그인 정보가 있으면 바로 연결한다.
     @discardableResult
     func open(_ session: SessionSnapshot) -> ConnectionTab {
         let sameSessionCount = tabs.filter { $0.session.sessionID == session.sessionID }.count
@@ -78,6 +79,9 @@ final class TabManager {
             tabs.append(tab)
         }
         selectedTabID = tab.id
+        if let remote = tab.remote, remote.canAutoConnect {
+            remote.connectUsingVault()
+        }
         return tab
     }
 
@@ -146,7 +150,16 @@ protocol RemoteSession: AnyObject {
     var snapshot: SessionSnapshot { get }
     var state: ConnectionState { get }
     var canConnect: Bool { get }
-    func connect(password: String)
+    /// 이번 연결에 쓸 사용자 이름 (연결 중 입력해서 저장한 값 포함)
+    var username: String { get }
+    /// 키체인에 비밀번호가 저장되어 있는지
+    var hasSavedPassword: Bool { get }
+    /// 저장된 비밀번호로 로그인에 실패했는지 (새 비밀번호를 받아야 함)
+    var savedPasswordRejected: Bool { get }
+    /// 묻지 않고 저장된 정보로 바로 연결할 수 있는지
+    var canAutoConnect: Bool { get }
+    /// remember: 연결에 성공하면 비밀번호를 키체인에 저장
+    func connect(password: String, remember: Bool)
     func connectUsingVault()
     func disconnect()
 }

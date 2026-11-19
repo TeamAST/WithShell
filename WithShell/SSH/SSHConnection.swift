@@ -135,6 +135,12 @@ private struct UncheckedSendable<Value>: @unchecked Sendable {
 }
 
 extension Error {
+    /// 사용자 이름·비밀번호(또는 키)가 서버에서 거부된 경우
+    var isSSHAuthenticationFailure: Bool {
+        if case SSHClientError.allAuthenticationOptionsFailed = self as Error { return true }
+        return false
+    }
+
     /// 사용자에게 보여줄 연결 오류 메시지
     var sshFriendlyMessage: String {
         switch self as Error {

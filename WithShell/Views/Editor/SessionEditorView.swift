@@ -122,12 +122,12 @@ struct SessionEditorView: View {
             Toggle("비밀번호를 키체인에 저장", isOn: $draft.savePassword)
             if draft.savePassword {
                 PasswordField(
-                    title: draft.hadSavedPassword ? "비밀번호 (바꿀 때만 입력)" : "저장할 비밀번호",
+                    title: draft.hadSavedPassword ? "비밀번호 (바꿀 때만 입력)" : "비밀번호 (선택)",
                     text: $draft.newPassword
                 )
             }
             Text(draft.savePassword
-                 ? "키체인에 저장되며, 연결할 때 Touch ID로 확인합니다."
+                 ? "키체인에 저장됩니다. 비워 두면 처음 연결할 때 입력한 비밀번호를 저장합니다. 본인 확인(Touch ID)은 앱 실행 후 처음 한 번만 합니다."
                  : "연결할 때마다 비밀번호를 묻습니다.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -166,9 +166,6 @@ struct SessionEditorView: View {
         if !(1...65535).contains(draft.port) { return "포트는 1–65535 사이여야 합니다." }
         if draft.authMethod == .privateKey && !keys.contains(where: { $0.id == draft.keyID }) {
             return "사용할 개인키를 선택하세요."
-        }
-        if draft.authMethod == .password && draft.savePassword && !draft.hadSavedPassword && draft.newPassword.isEmpty {
-            return "저장할 비밀번호를 입력하세요."
         }
         return nil
     }
@@ -232,7 +229,7 @@ struct SessionDraft {
     var keyID: UUID?
     var terminalThemeID = ""
     var terminalType = ""
-    var savePassword = false
+    var savePassword = true
     var hadSavedPassword = false
     /// 새로 저장할 비밀번호 (비어 있으면 기존 값 유지)
     var newPassword = ""
@@ -252,7 +249,7 @@ struct SessionDraft {
         keyID = session.keyID
         terminalThemeID = session.terminalThemeID
         terminalType = session.terminalType
-        savePassword = session.hasSavedPassword
+        savePassword = true
         hadSavedPassword = session.hasSavedPassword
     }
 

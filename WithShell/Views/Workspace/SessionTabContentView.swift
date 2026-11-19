@@ -56,6 +56,7 @@ struct ConnectCard: View {
 
     @State private var password = ""
     @State private var usesManualPassword = false
+    @State private var remember = true
     @State private var promptUsername = ""
     @State private var promptDomain = ""
 
@@ -86,9 +87,9 @@ struct ConnectCard: View {
                     .foregroundStyle(.secondary)
             }
 
-            if snapshot.username.isEmpty && snapshot.kind == .rdp {
+            if session.username.isEmpty && snapshot.kind == .rdp {
                 credentialPrompt
-            } else if snapshot.username.isEmpty {
+            } else if session.username.isEmpty {
                 Text("세션 편집에서 사용자 이름을 먼저 입력하세요.")
                     .foregroundStyle(.secondary)
             } else {
@@ -102,6 +103,12 @@ struct ConnectCard: View {
         .onAppear { promptDomain = snapshot.domain }
     }
 
+    private var rememberToggle: some View {
+        Toggle("비밀번호 저장", isOn: $remember)
+            .toggleStyle(.checkbox)
+            .help("연결에 성공하면 키체인에 저장하고, 다음부터 묻지 않고 연결합니다.")
+    }
+
     /// RDP 세션에 사용자 이름이 저장되어 있지 않을 때: 사용자 이름·비밀번호·도메인 입력
     private var credentialPrompt: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -112,9 +119,9 @@ struct ConnectCard: View {
                 .textFieldStyle(.roundedBorder)
                 .onSubmit(connectWithPrompt)
             HStack {
-                Text("입력한 정보는 저장되지 않습니다.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Toggle("로그인 정보 저장", isOn: $remember)
+                    .toggleStyle(.checkbox)
+                    .help("연결에 성공하면 사용자 이름·도메인은 세션에, 비밀번호는 키체인에 저장합니다.")
                 Spacer()
                 Button(connectTitle, action: connectWithPrompt)
                     .keyboardShortcut(.defaultAction)
@@ -126,7 +133,7 @@ struct ConnectCard: View {
     private func connectWithPrompt() {
         let username = promptUsername.trimmingCharacters(in: .whitespaces)
         guard !username.isEmpty, !password.isEmpty, let rdp = session as? RDPSession else { return }
-        rdp.connect(username: username, domain: promptDomain, password: password)
+        rdp.connect(username: username, domain: promptDomain, password: password, remember: remember)
         password = ""
     }
 
@@ -137,18 +144,25 @@ struct ConnectCard: View {
     @ViewBuilder
     private var authControls: some View {
             switch snapshot.authMethod {
-            case .password where snapshot.hasSavedPassword && !usesManualPassword:
+            case .password where session.hasSavedPassword && !usesManualPassword && !session.savedPasswordRejected:
                 HStack {
                     Button("다른 비밀번호 입력") { usesManualPassword = true }
                         .buttonStyle(.link)
                     Spacer()
-                    Button(connectTitle, systemImage: "touchid") { session.connectUsingVault() }
+                    Button(connectTitle) { session.connectUsingVault() }
                         .keyboardShortcut(.defaultAction)
                 }
             case .password:
                 Group {
+                    if session.savedPasswordRejected {
+                        Text("저장된 비밀번호로 로그인하지 못했습니다. 새 비밀번호를 입력하세요.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     PasswordField(title: "비밀번호", text: $password, autoFocus: true, onSubmit: connect)
                     HStack {
+                        rememberToggle
                         Spacer()
                         Button(connectTitle, action: connect)
                             .keyboardShortcut(.defaultAction)
@@ -161,7 +175,7 @@ struct ConnectCard: View {
                         Label(keyName, systemImage: "key.fill")
                             .foregroundStyle(.secondary)
                         Spacer()
-                        Button(connectTitle, systemImage: "touchid") { session.connectUsingVault() }
+                        Button(connectTitle) { session.connectUsingVault() }
                             .keyboardShortcut(.defaultAction)
                     }
                 } else {
@@ -176,8 +190,9 @@ struct ConnectCard: View {
 
     private func connect() {
         guard !password.isEmpty else { return }
-        session.connect(password: password)
+        session.connect(password: password, remember: remember)
         password = ""
+        usesManualPassword = false
     }
 }
 

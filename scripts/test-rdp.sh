@@ -23,37 +23,48 @@ case "${1:-up}" in
     ;;
   test)
     cd "$(dirname "$0")/.."
+    # 클립보드 테스트는 앱 컨테이너 tmp 폴더로 신호 파일을 주고받는다 (테스트는 샌드박스라 docker 를 직접 못 부른다).
+    # macOS 가 다른 앱의 컨테이너 쓰기를 막으면(앱 데이터 보호) 클립보드 테스트만 건너뛴다.
+    SIGNAL="$HOME/Library/Containers/com.teamast.withshell/Data/tmp"
+    CLIPBOARD=0
+    if mkdir -p "$SIGNAL" 2>/dev/null && touch "$SIGNAL/.withshell-probe" 2>/dev/null; then
+      rm -f "$SIGNAL/.withshell-probe" "$SIGNAL"/clip-*.txt(N)
+      CLIPBOARD=1
+    else
+      echo "※ 앱 컨테이너에 쓸 수 없어 클립보드 왕복 테스트를 건너뜁니다 (터미널에 앱 데이터 접근 권한 필요)."
+    fi
+
     TEST_RUNNER_WITHSHELL_TEST_RDP_HOST=$WITHSHELL_TEST_RDP_HOST \
     TEST_RUNNER_WITHSHELL_TEST_RDP_PORT=$WITHSHELL_TEST_RDP_PORT \
     TEST_RUNNER_WITHSHELL_TEST_RDP_USER=$WITHSHELL_TEST_RDP_USER \
     TEST_RUNNER_WITHSHELL_TEST_RDP_PASSWORD=$WITHSHELL_TEST_RDP_PASSWORD \
-    TEST_RUNNER_WITHSHELL_TEST_RDP_CLIPBOARD=1 \
+    TEST_RUNNER_WITHSHELL_TEST_RDP_CLIPBOARD=$CLIPBOARD \
     TEST_RUNNER_WLOG_APPENDER=CONSOLE \
     xcodebuild test -project WithShell.xcodeproj -scheme WithShell \
       -derivedDataPath build/DerivedData -skipPackagePluginValidation -skipMacroValidation \
-      -only-testing:WithShellTests/RDPConnectionTests &
+      -only-testing:WithShellTests/RDPConnectionTests \
+      -only-testing:WithShellTests/CredentialRememberTests &
     TEST_PID=$!
 
-    # 클립보드 테스트와 파일로 신호를 주고받는다 (테스트는 샌드박스라 docker 를 직접 못 부른다)
-    SIGNAL="$HOME/Library/Containers/com.teamast.withshell/Data/tmp"
-    rm -f "$SIGNAL"/clip-*.txt(N)
-    XRUN=(docker exec -u ubuntu -e DISPLAY=:10 withshell-test-rdp)
-    for i in $(seq 1 120); do
-      if [[ -f "$SIGNAL/clip-request.txt" ]]; then
-        # Mac → 원격: 원격 X 클립보드에서 읽어 돌려준다
-        "${XRUN[@]}" timeout 10 xclip -selection clipboard -o > "$SIGNAL/clip-response.tmp" 2>/dev/null || true
-        mv "$SIGNAL/clip-response.tmp" "$SIGNAL/clip-response.txt"
-        # 원격 → Mac: 원격 클립보드에 값을 넣는다
-        REMOTE="withshell-remote-$RANDOM"
-        docker exec withshell-test-rdp pkill xclip >/dev/null 2>&1 || true
-        print -n "$REMOTE" | docker exec -i -u ubuntu withshell-test-rdp sh -c 'cat > /tmp/withshell-clip.txt'
-        docker exec -d -u ubuntu -e DISPLAY=:10 withshell-test-rdp xclip -selection clipboard -i -loops 5 /tmp/withshell-clip.txt
-        print -n "$REMOTE" > "$SIGNAL/clip-remote.txt"
-        break
-      fi
-      kill -0 $TEST_PID 2>/dev/null || break
-      sleep 0.5
-    done
+    if [[ $CLIPBOARD == 1 ]]; then
+      XRUN=(docker exec -u ubuntu -e DISPLAY=:10 withshell-test-rdp)
+      for i in $(seq 1 120); do
+        if [[ -f "$SIGNAL/clip-request.txt" ]]; then
+          # Mac → 원격: 원격 X 클립보드에서 읽어 돌려준다
+          "${XRUN[@]}" timeout 10 xclip -selection clipboard -o > "$SIGNAL/clip-response.tmp" 2>/dev/null || true
+          mv "$SIGNAL/clip-response.tmp" "$SIGNAL/clip-response.txt"
+          # 원격 → Mac: 원격 클립보드에 값을 넣는다
+          REMOTE="withshell-remote-$RANDOM"
+          docker exec withshell-test-rdp pkill xclip >/dev/null 2>&1 || true
+          print -n "$REMOTE" | docker exec -i -u ubuntu withshell-test-rdp sh -c 'cat > /tmp/withshell-clip.txt'
+          docker exec -d -u ubuntu -e DISPLAY=:10 withshell-test-rdp xclip -selection clipboard -i -loops 5 /tmp/withshell-clip.txt
+          print -n "$REMOTE" > "$SIGNAL/clip-remote.txt"
+          break
+        fi
+        kill -0 $TEST_PID 2>/dev/null || break
+        sleep 0.5
+      done
+    fi
     wait $TEST_PID
     ;;
 esac

@@ -11,16 +11,26 @@ final class RDPSession: RemoteSession {
     private(set) var state: ConnectionState = .idle
     private(set) var certificatePrompt: RDPCertificatePrompt?
     private(set) var remoteSize: CGSize = .zero
+    private(set) var hasSavedPassword: Bool
+    private(set) var savedPasswordRejected = false
+    /// 이번 탭에서 쓰는 사용자 이름·도메인 (연결할 때 입력해 저장한 값 포함)
+    private(set) var username: String
+    private(set) var domain: String
 
     @ObservationIgnored let displayView = RDPDisplayView(frame: NSRect(x: 0, y: 0, width: 1024, height: 768))
     @ObservationIgnored private let services: AppServices
     @ObservationIgnored private var connection: RDPConnection?
     @ObservationIgnored private var clipboardTimer: Timer?
     @ObservationIgnored private var lastPasteboardChange = -1
+    @ObservationIgnored private var pendingRemember: (password: String, username: String, domain: String)?
+    @ObservationIgnored private var usingSavedPassword = false
 
     init(snapshot: SessionSnapshot, services: AppServices) {
         self.snapshot = snapshot
         self.services = services
+        hasSavedPassword = snapshot.hasSavedPassword
+        username = snapshot.username
+        domain = snapshot.domain
         displayView.onResizeRequest = { [weak self] size, scale in
             self?.requestResize(pixelSize: size, scale: scale)
         }
@@ -36,6 +46,10 @@ final class RDPSession: RemoteSession {
         }
     }
 
+    var canAutoConnect: Bool {
+        canConnect && !username.isEmpty && hasSavedPassword && !savedPasswordRejected
+    }
+
     // MARK: - 연결
 
     func connectUsingVault() {
@@ -48,15 +62,16 @@ final class RDPSession: RemoteSession {
                     reason: "‘\(snapshot.name)’ 원격 데스크톱에 연결하기 위해"
                 )
                 state = .idle
-                connect(password: password)
+                connect(username: username, domain: domain, password: password, remember: false)
+                usingSavedPassword = true
             } catch {
                 state = .failed(error.localizedDescription)
             }
         }
     }
 
-    func connect(password: String) {
-        connect(username: snapshot.username, domain: snapshot.domain, password: password)
+    func connect(password: String, remember: Bool) {
+        connect(username: username, domain: domain, password: password, remember: remember)
     }
 
     /// 사용자 이름이 `DOMAIN\user` 형식이면 도메인을 분리하되, 도메인 칸에 값이 있으면 그 값을 쓴다.
@@ -66,8 +81,10 @@ final class RDPSession: RemoteSession {
         return (user, explicit.isEmpty ? embeddedDomain : explicit)
     }
 
-    func connect(username rawUsername: String, domain rawDomain: String, password: String) {
+    func connect(username rawUsername: String, domain rawDomain: String, password: String, remember: Bool) {
         guard canConnect else { return }
+        usingSavedPassword = false
+        pendingRemember = remember ? (password, rawUsername, rawDomain) : nil
 
         let (username, domain) = Self.resolveCredentials(username: rawUsername, domain: rawDomain)
         let preferred = displayView.preferredRemoteSize
@@ -134,6 +151,17 @@ final class RDPSession: RemoteSession {
             state = .connecting
         case .connected:
             state = .connected
+            savedPasswordRejected = false
+            if let remember = pendingRemember {
+                services.rememberCredentials(
+                    sessionID: snapshot.sessionID, password: remember.password,
+                    username: remember.username, domain: remember.domain
+                )
+                hasSavedPassword = true
+                if username.isEmpty { username = remember.username }
+                if domain.isEmpty { domain = remember.domain }
+                pendingRemember = nil
+            }
             displayView.window?.makeFirstResponder(displayView)
             startClipboardSync()
         case .resized(let width, let height):
@@ -151,6 +179,9 @@ final class RDPSession: RemoteSession {
         case .disconnected:
             finish(.disconnected)
         case .failed(let name, let message):
+            if usingSavedPassword && Self.authenticationFailureNames.contains(name) {
+                savedPasswordRejected = true
+            }
             finish(.failed(Self.friendlyMessage(name: name, message: message)))
         }
     }
@@ -211,6 +242,11 @@ final class RDPSession: RemoteSession {
         let device = backingScale >= 1.8 ? 180 : (backingScale >= 1.4 ? 140 : 100)
         return (min(500, max(100, desktop)), device)
     }
+
+    nonisolated static let authenticationFailureNames: Set<String> = [
+        "ERRCONNECT_LOGON_FAILURE", "ERRCONNECT_AUTHENTICATION_FAILED", "ERRCONNECT_WRONG_PASSWORD",
+        "ERRCONNECT_PASSWORD_EXPIRED", "ERRCONNECT_PASSWORD_MUST_CHANGE", "ERRCONNECT_PASSWORD_CERTAINLY_EXPIRED",
+    ]
 
     nonisolated static func friendlyMessage(name: String, message: String) -> String {
         switch name {

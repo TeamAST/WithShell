@@ -49,7 +49,7 @@ struct KeyManagerView: View {
                     ContentUnavailableView {
                         Label("등록된 키 없음", systemImage: "key")
                     } description: {
-                        Text("기존 개인키(Ed25519·ECDSA·RSA)를 가져오거나 새 Ed25519 키를 만드세요.\n개인키는 macOS 키체인에 저장되고, 사용할 때 Touch ID로 확인합니다.")
+                        Text("기존 개인키(Ed25519·ECDSA·RSA)를 가져오거나 새 Ed25519 키를 만드세요.\n개인키는 macOS 키체인에 저장되고, 앱 실행 후 처음 사용할 때 한 번만 Touch ID로 확인합니다.")
                     } actions: {
                         HStack {
                             Button("파일에서 가져오기…", action: importFromFile)
@@ -84,7 +84,7 @@ struct KeyManagerView: View {
                 }
 
                 Button("키체인 잠그기", systemImage: "lock") { app.services.vault.lock() }
-                    .help("Touch ID 확인 상태를 해제합니다. 다음 연결 때 다시 확인합니다.")
+                    .help("본인 확인 상태를 해제합니다. 다음에 저장된 비밀번호·키를 쓸 때 다시 Touch ID로 확인합니다.")
             }
         }
         .sheet(item: $importDraft) { draft in

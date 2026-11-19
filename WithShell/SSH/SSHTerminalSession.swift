@@ -13,6 +13,8 @@ final class SSHTerminalSession {
     private(set) var state: ConnectionState = .idle
     private(set) var hostKeyPrompt: HostKeyPrompt?
     private(set) var remoteTitle: String?
+    private(set) var hasSavedPassword: Bool
+    private(set) var savedPasswordRejected = false
     /// 현재 프리셋의 배경색 (터미널 주변 여백에도 같은 색을 칠하기 위해)
     private(set) var backgroundColor: NSColor = .black
 
@@ -25,10 +27,15 @@ final class SSHTerminalSession {
     @ObservationIgnored private var size = (cols: 80, rows: 24)
     /// 단색 프리셋일 때 서버 출력의 색 코드를 지운다
     @ObservationIgnored private var colorStripper: SGRColorStripper?
+    /// 연결에 성공하면 저장할 비밀번호
+    @ObservationIgnored private var passwordToRemember: String?
+    /// 이번 시도가 저장된 비밀번호를 쓴 것인지
+    @ObservationIgnored private var usingSavedPassword = false
 
     init(snapshot: SessionSnapshot, services: AppServices) {
         self.snapshot = snapshot
         self.services = services
+        hasSavedPassword = snapshot.hasSavedPassword
 
         terminalView = TerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 500))
         terminalView.optionAsMetaKey = true
@@ -71,6 +78,17 @@ final class SSHTerminalSession {
         }
     }
 
+    var username: String { snapshot.username }
+
+    var canAutoConnect: Bool {
+        guard canConnect, !snapshot.username.isEmpty, !savedPasswordRejected else { return false }
+        switch snapshot.authMethod {
+        case .privateKey: return snapshot.keyID != nil
+        case .password: return hasSavedPassword
+        case .agent: return false
+        }
+    }
+
     // MARK: - 연결
 
     /// 키체인에 저장된 비밀번호나 개인키로 연결한다 (Touch ID로 본인 확인).
@@ -91,6 +109,8 @@ final class SSHTerminalSession {
                     credential = .password(try await services.vault.loadPassword(sessionID: snapshot.sessionID, reason: reason))
                 }
                 state = .idle
+                passwordToRemember = nil
+                usingSavedPassword = snapshot.authMethod == .password
                 connect(credential: credential)
             } catch {
                 state = .failed(error.sshFriendlyMessage)
@@ -98,7 +118,9 @@ final class SSHTerminalSession {
         }
     }
 
-    func connect(password: String) {
+    func connect(password: String, remember: Bool) {
+        passwordToRemember = remember ? password : nil
+        usingSavedPassword = false
         connect(credential: .password(password))
     }
 
@@ -153,6 +175,12 @@ final class SSHTerminalSession {
 
     private func didOpenShell() {
         state = .connected
+        savedPasswordRejected = false
+        if let password = passwordToRemember {
+            services.rememberCredentials(sessionID: snapshot.sessionID, password: password)
+            hasSavedPassword = true
+            passwordToRemember = nil
+        }
         // 연결 중에 창 크기가 바뀌었을 수 있으므로 현재 크기를 다시 알린다.
         connection?.resize(cols: size.cols, rows: size.rows)
         terminalView.window?.makeFirstResponder(terminalView)
@@ -163,6 +191,9 @@ final class SSHTerminalSession {
         self.connection = nil
         runTask = nil
         if let error, !(error is CancellationError) {
+            if usingSavedPassword && error.isSSHAuthenticationFailure {
+                savedPasswordRejected = true
+            }
             state = .failed(error.sshFriendlyMessage)
             feedStatus("연결 실패: \(error.sshFriendlyMessage)")
         } else {

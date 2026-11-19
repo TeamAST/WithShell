@@ -23,20 +23,22 @@ enum VaultError: LocalizedError {
     }
 }
 
-/// 개인키·비밀번호를 macOS 키체인에 저장하고, 꺼낼 때 Touch ID(또는 Mac 암호)로 본인 확인을 한다.
+/// 개인키·비밀번호를 macOS 키체인에 저장한다.
 ///
-/// - 앱이 개발자 팀으로 서명되어 있으면 데이터 보호 키체인에 `.userPresence` 접근 제어를 걸어 저장한다.
-///   이때는 OS가 직접 본인 확인을 강제한다.
-/// - ad-hoc 서명(팀 없음)이라 데이터 보호 키체인을 쓸 수 없으면 로그인 키체인에 저장하고,
-///   읽기 전에 앱이 LocalAuthentication으로 본인 확인을 한다.
+/// 본인 확인(Touch ID 또는 Mac 계정 암호)은 **앱을 실행한 뒤 처음 저장된 정보를 꺼낼 때 한 번만** 한다.
+/// 그 뒤로는 앱을 끝내거나 직접 잠글 때까지 다시 묻지 않는다.
+/// - 항목은 이 Mac에서만, 화면 잠금이 풀려 있을 때만 읽을 수 있게 저장한다 (iCloud 동기화 안 함).
+/// - 데이터 보호 키체인을 쓸 수 없는 빌드(팀 권한 없음)에서는 로그인 키체인에 저장한다.
+/// - 한 번 읽은 값은 잠글 때까지 메모리에 보관해 키체인 접근을 줄인다.
 @MainActor
 final class KeychainVault {
     nonisolated static let service = "com.teamast.withshell.vault"
-    /// 한 번 본인 확인을 하면 이 시간 동안은 다시 묻지 않는다.
-    static let unlockDuration: TimeInterval = 5 * 60
 
     private var context: LAContext?
-    private var unlockedAt: Date?
+    /// 이번 실행에서 본인 확인을 마쳤는지
+    private(set) var isUnlocked = false
+    /// 잠금 해제 중 읽은 값 (잠그면 지운다)
+    private var cache: [String: Data] = [:]
 
     // MARK: - 계정 이름
 
@@ -68,6 +70,7 @@ final class KeychainVault {
     // MARK: - 공통
 
     func delete(account: String) {
+        cache[account] = nil
         for useDataProtection in [true, false] {
             var query = Self.baseQuery(account: account)
             query[kSecUseDataProtectionKeychain as String] = useDataProtection
@@ -75,61 +78,63 @@ final class KeychainVault {
         }
     }
 
-    /// 본인 확인 상태를 즉시 해제한다.
+    /// 본인 확인 상태를 해제한다. 다음에 저장된 정보를 꺼낼 때 다시 확인한다.
     func lock() {
         context?.invalidate()
         context = nil
-        unlockedAt = nil
+        isUnlocked = false
+        cache.removeAll()
+    }
+
+    /// 이번 실행에서 아직 확인하지 않았으면 Touch ID / Mac 암호로 본인 확인을 한다.
+    func unlock(reason: String) async throws {
+        _ = try await authenticatedContext(reason: reason)
     }
 
     private func store(_ data: Data, account: String) throws {
         delete(account: account)
 
-        // 1) 데이터 보호 키체인 + 본인 확인 필수
-        var error: Unmanaged<CFError>?
-        if let access = SecAccessControlCreateWithFlags(
-            nil, kSecAttrAccessibleWhenUnlockedThisDeviceOnly, .userPresence, &error
-        ) {
-            var query = Self.baseQuery(account: account)
-            query[kSecUseDataProtectionKeychain as String] = true
-            query[kSecAttrAccessControl as String] = access
-            query[kSecAttrSynchronizable as String] = false
-            query[kSecValueData as String] = data
-            let status = SecItemAdd(query as CFDictionary, nil)
-            if status == errSecSuccess { return }
-            if status != errSecMissingEntitlement { throw VaultError.keychain(status) }
-        }
-
-        // 2) 로그인 키체인 (ad-hoc 서명 개발 빌드)
+        // 1) 데이터 보호 키체인 (팀 서명 + 권한이 있는 빌드)
         var query = Self.baseQuery(account: account)
-        query[kSecUseDataProtectionKeychain as String] = false
+        query[kSecUseDataProtectionKeychain as String] = true
+        query[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        query[kSecAttrSynchronizable as String] = false
         query[kSecValueData as String] = data
-        let status = SecItemAdd(query as CFDictionary, nil)
-        guard status == errSecSuccess else { throw VaultError.keychain(status) }
+        var status = SecItemAdd(query as CFDictionary, nil)
+        if status != errSecSuccess {
+            guard status == errSecMissingEntitlement else { throw VaultError.keychain(status) }
+
+            // 2) 로그인 키체인
+            var legacy = Self.baseQuery(account: account)
+            legacy[kSecUseDataProtectionKeychain as String] = false
+            legacy[kSecValueData as String] = data
+            status = SecItemAdd(legacy as CFDictionary, nil)
+            guard status == errSecSuccess else { throw VaultError.keychain(status) }
+        }
+        // 이미 잠금 해제된 상태라면 방금 저장한 값을 바로 쓸 수 있게 둔다
+        if isUnlocked { cache[account] = data }
     }
 
     private func load(account: String, reason: String) async throws -> Data {
         let context = try await authenticatedContext(reason: reason)
+        if let cached = cache[account] { return cached }
         // 키체인 접근은 블로킹 호출이므로 백그라운드에서 실행한다.
-        let result = await Task.detached { Self.copyItem(account: account, context: context) }.value
-        return try result.get()
+        let data = try await Task.detached { Self.copyItem(account: account, context: context) }.value.get()
+        cache[account] = data
+        return data
     }
 
     private func authenticatedContext(reason: String) async throws -> LAContext {
-        if let context, let unlockedAt, Date.now.timeIntervalSince(unlockedAt) < Self.unlockDuration {
-            return context
-        }
-        lock()
+        if isUnlocked, let context { return context }
 
         let context = LAContext()
-        context.touchIDAuthenticationAllowableReuseDuration = Self.unlockDuration
         do {
             try await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)
         } catch {
             throw VaultError.authenticationFailed(error.localizedDescription)
         }
         self.context = context
-        unlockedAt = .now
+        isUnlocked = true
         return context
     }
 

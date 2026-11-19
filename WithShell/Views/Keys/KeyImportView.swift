@@ -85,8 +85,8 @@ struct KeyImportView: View {
                         PasswordField(title: "패스프레이즈", text: $passphrase)
                     } footer: {
                         Text(isEncryptedPEM
-                             ? "PEM 키는 OpenSSH 형식으로 변환해 키체인에 저장하므로, 패스프레이즈는 가져올 때만 사용합니다. 접속할 때는 Touch ID만 확인합니다."
-                             : "패스프레이즈도 개인키와 함께 키체인에 보관되어, 접속할 때는 Touch ID만 확인합니다.")
+                             ? "PEM 키는 OpenSSH 형식으로 변환해 키체인에 저장하므로, 패스프레이즈는 가져올 때만 사용합니다. 접속할 때는 앱 실행 후 처음 한 번만 Touch ID로 확인합니다."
+                             : "패스프레이즈도 개인키와 함께 키체인에 보관되어, 접속할 때는 앱 실행 후 처음 한 번만 Touch ID로 확인합니다.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
